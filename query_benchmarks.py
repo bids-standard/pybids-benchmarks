@@ -8,7 +8,8 @@ import pandas as pd
 from datetime import datetime
 
 DATASET_PATH = Path('/home/zorro/datasets/raw/')
-
+PYBIDS_PATH = '/home/zorro/repos/pybids-legacy'
+PYBIDS_REFACTOR_PATH = '/home/zorro/repos/pybids'
 RESULTS = []
 RESULTS_COLS = ['version', 'function', 'rep', 'time']
 
@@ -143,7 +144,7 @@ def get_return_type_dict(layouts):
 if __name__ == '__main__':
 
     ## Test "legacy" pybids
-    sys.path.insert(0,os.path.abspath('/home/zorro/repos/pybids-legacy'))
+    sys.path.insert(0,os.path.abspath(PYBIDS_PATH))
     import bids.layout as bids_l
 
     version = 'legacy'
@@ -166,7 +167,7 @@ if __name__ == '__main__':
 
     ## Test refactored "ancp-bids" pybids
     del(sys.path[0])
-    sys.path.insert(0,os.path.abspath('/home/zorro/repos/pybids'))
+    sys.path.insert(0,os.path.abspath(PYBIDS_REFACTOR_PATH))
     import bids.layout as bids_l
 
     version = 'pybids-refactor'
