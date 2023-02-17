@@ -8,12 +8,13 @@ import pandas as pd
 from datetime import datetime
 
 DATASET_PATH = Path('/home/zorro/datasets/raw/')
-PYBIDS_PATH = '/home/zorro/repos/pybids-legacy'
+PYBIDS_LEGACY_PATH = '/home/zorro/repos/pybids-legacy'
 PYBIDS_REFACTOR_PATH = '/home/zorro/repos/pybids'
 RESULTS = []
 RESULTS_COLS = ['version', 'function', 'rep', 'time']
+N_LOOPS = 10
 
-def timing(loops=10):
+def timing(loops=N_LOOPS):
     """ Decorator factory to time a function. """
     def wrap(f):
         def wrapped_f(*args, **kw):
@@ -131,6 +132,30 @@ def get_return_type_dict(layouts):
 
     return results
 
+def _run_pybids_benchmarks(bids_layout, version):
+    _ = load_layouts_no_md(bids_layout, version=version)
+    layouts = load_layouts(bids_layout, version=version)
+    all_subjects(layouts, version=version)
+    tasks = all_tasks(layouts, version=version)
+    subjects_for_task(layouts, tasks, version=version)
+    print_repr(layouts, version=version)
+    get_niftis_as_files(layouts, version=version)
+    bids_files = get_niftis_as_objects(layouts, version=version)
+    get_metadata(bids_files, version=version)
+    get_return_type_dict(layouts, version=version)
+
+def _load_pybids_from_path(path):
+    # Unload existing pybids
+    for mod in list(sys.modules.keys()):
+        if mod.startswith('bids'):
+            del(sys.modules[mod])
+
+    # Load pybids from path
+    sys.path.insert(0,os.path.abspath(path))
+    import bids.layout as bids_l
+    return bids_l
+
+
 # Test bids2table on similar queries
 # def b2t_ses_query(ta):
 #     return (
@@ -142,50 +167,18 @@ def get_return_type_dict(layouts):
 
 
 if __name__ == '__main__':
+    # Test "legacy" pybids
+    bids_l = _load_pybids_from_path(PYBIDS_LEGACY_PATH)
 
-    ## Test "legacy" pybids
-    sys.path.insert(0,os.path.abspath(PYBIDS_PATH))
-    import bids.layout as bids_l
-
-    version = 'legacy'
+    _run_pybids_benchmarks(bids_l, version='pybids-legacy')
     
-    _ = load_layouts_no_md(bids_l, version=version)
-    layouts = load_layouts(bids_l, version=version)
-    all_subjects(layouts, version=version)
-    tasks = all_tasks(layouts, version=version)
-    subjects_for_task(layouts, tasks, version=version)
-    print_repr(layouts, version=version)
-    get_niftis_as_files(layouts, version=version)
-    bids_files = get_niftis_as_objects(layouts, version=version)
-    get_metadata(bids_files, version=version)
-    get_return_type_dict(layouts, version=version)
+    # Test "refactor" pybids
+    bids_l_refactor = _load_pybids_from_path(PYBIDS_REFACTOR_PATH)
 
-    ## Unload module
-    for mod in list(sys.modules.keys()):
-        if mod.startswith('bids'):
-            del(sys.modules[mod])
+    _run_pybids_benchmarks(bids_l_refactor, version='pybids-refactor')
 
-    ## Test refactored "ancp-bids" pybids
-    del(sys.path[0])
-    sys.path.insert(0,os.path.abspath(PYBIDS_REFACTOR_PATH))
-    import bids.layout as bids_l
-
-    version = 'pybids-refactor'
-
-    _ = load_layouts_no_md(bids_l, version=version)
-    layouts = load_layouts(bids_l, version=version)
-    all_subjects(layouts, version=version)
-    tasks = all_tasks(layouts, version=version)
-    subjects_for_task(layouts, tasks, version=version)
-    print_repr(layouts, version=version)
-    get_niftis_as_files(layouts, version=version)
-    bids_files = get_niftis_as_objects(layouts, version=version)
-    get_metadata(bids_files, version=version)
-    get_return_type_dict(layouts, version=version)
-
-    ## Conver to dataframe
+    # Convert & save results
     df = pd.DataFrame(RESULTS, columns=RESULTS_COLS)
-    # Save with timestamp
     df.to_csv(f"results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv", index=False)
 
     print("RESULT SUMMARY:")
