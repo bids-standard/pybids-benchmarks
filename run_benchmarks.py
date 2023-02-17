@@ -133,16 +133,23 @@ def get_return_type_dict(layouts):
     return results
 
 def _run_pybids_benchmarks(bids_layout, version):
+    """ Run all benchmarks for a given version of pybids."""
     _ = load_layouts_no_md(bids_layout, version=version)
     layouts = load_layouts(bids_layout, version=version)
-    all_subjects(layouts, version=version)
-    tasks = all_tasks(layouts, version=version)
-    subjects_for_task(layouts, tasks, version=version)
+
+    # Basic queries
     print_repr(layouts, version=version)
     get_niftis_as_files(layouts, version=version)
+    get_return_type_dict(layouts, version=version)
+    all_subjects(layouts, version=version)
+
+    # Related queries
+    tasks = all_tasks(layouts, version=version)
+    subjects_for_task(layouts, tasks, version=version)
+
+    # File queries
     bids_files = get_niftis_as_objects(layouts, version=version)
     get_metadata(bids_files, version=version)
-    get_return_type_dict(layouts, version=version)
 
 def _load_pybids_from_path(path):
     # Unload existing pybids
