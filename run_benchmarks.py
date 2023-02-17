@@ -10,146 +10,153 @@ from datetime import datetime
 DATASET_PATH = Path('/home/zorro/datasets/raw/')
 PYBIDS_LEGACY_PATH = '/home/zorro/repos/pybids-legacy'
 PYBIDS_REFACTOR_PATH = '/home/zorro/repos/pybids'
-RESULTS = []
-RESULTS_COLS = ['version', 'function', 'rep', 'time']
-N_LOOPS = 10
+BENCHMARK_STATS = []
+BENCHMARK_COLS = ['dataset', 'version', 'function', 'rep', 'time']
+N_LOOPS = 5
+
+
+def _time_and_run(f, loops=N_LOOPS, version='unknown', dataset='N/A', **kwargs):
+    """ Time a function call and return the results."""
+    for rep in range(loops):
+        ts = time()
+        result = f(**kwargs)
+        te = time()
+        ms_diff = round((te - ts) * 1000, 2)
+        BENCHMARK_STATS.append([dataset, version, f.__name__, rep, ms_diff])
+    return result
 
 def timing(loops=N_LOOPS):
-    """ Decorator factory to time a function. """
+    """ Decorator factory to time a query. 
+
+    Runs function 'loops' times, and appends the results to the global
+    BENCHMARK_STATS list.
+
+    If the query takes a BIDSLayout as an argument, the decorator will
+    except a 'layouts' argument, which should be a dictionary of BIDSLayouts,
+    keyed by dataset name. The decorator will then run the query once for each
+    layout, and return a dictionary of results, keyed by dataset name. The
+    decorator also passes a single BIDSLayout to the query as 'layout'.
+
+    If the query takes any other arguments, the decorator will except a
+    dictionary of arguments, keyed by dataset name, which are passed to the query.
+
+    Records results in global RESULTS list.
+
+    Args:
+        loops (int): Number of times to run the query.
+    Query Args:
+        version (str): Version of pybids to test. Append to results.
+    
+    The following are optional, and depend on the query being run.
+        layouts (dict): Dictionary of BIDSLayout, keyed by dataset name.
+                         Decorator passes a single BIDSLayout to the query 
+                         as 'layout'.
+        **kwargs (dict): Any other keyword arguments are passed to the query are 
+                         assumed to contained the same keys as 'layouts', and 
+                         are passed to the query individually.
+    """
     def wrap(f):
-        def wrapped_f(*args, **kw):
+        def wrapped_f(**kw):
+            version = kw.pop('version', 'unknown')
 
-            if 'version' in kw:
-                version = kw.pop('version')
+            if 'layouts' in kw:
+                layouts = kw.pop('layouts')
+                results = {}
+                for ds, layout in layouts.items():
+                    results[ds] = _time_and_run(
+                            f, layout=layout, loops=loops, version=version, dataset=ds,
+                            **{k: v[ds] for k, v in kw.items()})
+                return results
             else:
-                version = 'unknown'
-            
-            for rep in range(loops):
-                ts = time()
-                result = f(*args, **kw)
-                te = time()
-                ms_diff = round((te - ts) * 1000, 2)
-                RESULTS.append([version, f.__name__, rep, ms_diff])
+                return _time_and_run(f, loops=loops, version=version, **kw)
 
-            return result
         return wrapped_f
     return wrap
 
 nndb_b2t = ''
 
+# Load BIDSLayout -- only runs once, since its slower
 @timing(loops=1)
-def load_layouts_no_md(bids_l):
-    indexer  = bids_l.BIDSLayoutIndexer(index_metadata=False)
+def load_layouts_no_md(*, bids_module):
+    indexer  = bids_module.BIDSLayoutIndexer(index_metadata=False)
     layouts = {}
     for ds in DATASET_PATH.iterdir():
         if ds.is_dir():
-            layouts[ds.stem] = bids_l.BIDSLayout(ds, indexer=indexer)
+            layouts[ds.stem] = bids_module.BIDSLayout(ds, indexer=indexer)
     return layouts
  
 @timing(loops=1)
-def load_layouts(bids_l):
+def load_layouts(*, bids_module):
     layouts = {}
     for ds in DATASET_PATH.iterdir():
         if ds.is_dir():
-            layouts[ds.stem] = bids_l.BIDSLayout(ds)
+            layouts[ds.stem] = bids_module.BIDSLayout(ds)
     return layouts
 
+ # Query tests
 @timing()
-def all_subjects(layouts):
+def all_subjects(*, layout):
     """ Get all subjects in a layout."""
-    result = []
-    for ds, layout in layouts.items():
-        result.append([ds, layout.get_subjects()])
-    return result
+    return layout.get_subjects()
 
 @timing()
-def all_tasks(layouts):
+def all_tasks(*, layout):
     """ Get all subjects in a layout."""
-    result = []
-    for ds, layout in layouts.items():
-        result.append(layout.get_tasks())
-    return result
+    return layout.get_tasks()
 
 @timing()
-def subjects_for_task(layouts, tasks):
-    """ Get all subjects in a task from all datasets in a layout."""
-    result = []
-    for ix, (ds, layout) in enumerate(layouts.items()):
-        ta = tasks[ix][0]
-        result.append([ds, layout.get_subjects(task=ta)])
-    return result
+def subjects_for_task(*, layout, tasks):
+    """ Get all subjects in a task in a layout."""
+    return layout.get_subjects(task=tasks[0])
 
 @timing()
-def print_repr(layouts):
-    for ds, layout in layouts.items():
-        layout.__repr__()
+def print_repr(*, layout):
+    return layout.__repr__()
 
 @timing()
-def get_niftis_as_files(layouts):
+def get_niftis_as_files(*, layout, tasks):
+    return layout.get(task=tasks[0], extension='.nii.gz', return_type='file')
+
+@timing()
+def get_objects_from_paths(*, layout, files):
     results = []
-    for ds, layout in layouts.items():
-        task = layout.get_tasks()[0]
-        results.append(
-            layout.get(task=task, extension='.nii.gz', return_type='file')
-        )
-
+    for f in files:
+        results.append(layout.get_file(f))
     return results
 
 @timing()
-def get_objects_from_paths(layouts, files):
-    results = []
-    for ix, layout in enumerate(layouts.values()):
-        f_set = files[ix]
-        for f in f_set:
-            results.append(layout.get_file(f))
+def get_niftis_as_objects(*, layout, tasks):
+    return layout.get(task=tasks[0], extension='.nii.gz', return_type='object')
 
 @timing()
-def get_niftis_as_objects(layouts):
-    results = []
-    for ds, layout in layouts.items():
-        task = layout.get_tasks()[0]
-        results.append(
-            layout.get(task=task, extension='.nii.gz', return_type='object')
-        )
-
-    return results
+def get_return_type_dict(*, layout):
+    return layout.get(target='subject', return_type='dir')
 
 @timing()
-def get_metadata(bids_files):
+def get_metadata(*, layout, files):
     results = []
-    for files in bids_files:
-        for f in files:
-            results.append(f.get_metadata())
+    for f in files:
+        results.append(f.get_metadata())
     return results
 
-@timing()
-def get_return_type_dict(layouts):
-    results = []
-    for ds, layout in layouts.items():
-        results.append(
-            layout.get(target='subject', return_type='dir')
-        )
-
-    return results
-
-def _run_pybids_benchmarks(bids_layout, version):
+def _run_pybids_benchmarks(bids_module, version):
     """ Run all benchmarks for a given version of pybids."""
-    _ = load_layouts_no_md(bids_layout, version=version)
-    layouts = load_layouts(bids_layout, version=version)
+    _ = load_layouts_no_md(bids_module=bids_module, version=version)
+    layouts = load_layouts(bids_module=bids_module, version=version)
 
     # Basic queries
-    print_repr(layouts, version=version)
-    get_niftis_as_files(layouts, version=version)
-    get_return_type_dict(layouts, version=version)
-    all_subjects(layouts, version=version)
+    print_repr(layouts=layouts, version=version)
+    get_return_type_dict(layouts=layouts, version=version)
+    all_subjects(layouts=layouts, version=version)
 
     # Related queries
-    tasks = all_tasks(layouts, version=version)
-    subjects_for_task(layouts, tasks, version=version)
+    tasks = all_tasks(layouts=layouts, version=version)
+    subjects_for_task(layouts=layouts, tasks=tasks, version=version)
+    get_niftis_as_files(layouts=layouts, tasks=tasks, version=version)
 
     # File queries
-    bids_files = get_niftis_as_objects(layouts, version=version)
-    get_metadata(bids_files, version=version)
+    files = get_niftis_as_objects(layouts=layouts, tasks=tasks, version=version)
+    get_metadata(layouts=layouts, files=files, version=version)
 
 def _load_pybids_from_path(path):
     # Unload existing pybids
@@ -177,15 +184,15 @@ if __name__ == '__main__':
     # Test "legacy" pybids
     bids_l = _load_pybids_from_path(PYBIDS_LEGACY_PATH)
 
-    _run_pybids_benchmarks(bids_l, version='pybids-legacy')
+    _run_pybids_benchmarks(bids_module=bids_l, version='pybids-legacy')
     
     # Test "refactor" pybids
     bids_l_refactor = _load_pybids_from_path(PYBIDS_REFACTOR_PATH)
 
-    _run_pybids_benchmarks(bids_l_refactor, version='pybids-refactor')
+    _run_pybids_benchmarks(bids_module=bids_l_refactor, version='pybids-refactor')
 
     # Convert & save results
-    df = pd.DataFrame(RESULTS, columns=RESULTS_COLS)
+    df = pd.DataFrame(BENCHMARK_STATS, columns=BENCHMARK_COLS)
     df.to_csv(f"results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv", index=False)
 
     print("RESULT SUMMARY:")
