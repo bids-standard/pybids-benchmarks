@@ -1,11 +1,9 @@
-import os
-import sys
-from functools import wraps
 from time import time
 from pathlib import Path
-from collections import defaultdict
 import pandas as pd
 from datetime import datetime
+
+from utils import _load_pybids_from_path
 
 DATASET_PATH = Path('/home/zorro/datasets/raw/')
 PYBIDS_LEGACY_PATH = '/home/zorro/repos/pybids-legacy'
@@ -13,7 +11,6 @@ PYBIDS_REFACTOR_PATH = '/home/zorro/repos/pybids'
 BENCHMARK_STATS = []
 BENCHMARK_COLS = ['dataset', 'version', 'function', 'rep', 'time']
 N_LOOPS = 5
-
 
 def _time_and_run(f, loops=N_LOOPS, version='unknown', dataset='N/A', **kwargs):
     """ Time a function call and return the results."""
@@ -26,21 +23,17 @@ def _time_and_run(f, loops=N_LOOPS, version='unknown', dataset='N/A', **kwargs):
     return result
 
 def timing(loops=N_LOOPS):
-    """ Decorator factory to time a query. 
+    """ Decorator to time a query. 
 
     Runs function 'loops' times, and appends the results to the global
     BENCHMARK_STATS list.
 
-    If the query takes a BIDSLayout as an argument, the decorator will
-    except a 'layouts' argument, which should be a dictionary of BIDSLayouts,
-    keyed by dataset name. The decorator will then run the query once for each
-    layout, and return a dictionary of results, keyed by dataset name. The
-    decorator also passes a single BIDSLayout to the query as 'layout'.
+    If the 'layouts' argument is given, the decorator will run the query once for
+    dataset, and return a dictionary of results, keyed by dataset name. The
+    decorator passes a single BIDSLayout to the query as 'layout'.
 
-    If the query takes any other arguments, the decorator will except a
-    dictionary of arguments, keyed by dataset name, which are passed to the query.
-
-    Records results in global RESULTS list.
+    Other keyword arguments are passed to the query are assumed to contained the
+    same keys as 'layouts', and are passed to the query individually.
 
     Args:
         loops (int): Number of times to run the query.
@@ -73,8 +66,6 @@ def timing(loops=N_LOOPS):
         return wrapped_f
     return wrap
 
-nndb_b2t = ''
-
 # Load BIDSLayout -- only runs once, since its slower
 @timing(loops=1)
 def load_layouts_no_md(*, bids_module):
@@ -93,7 +84,7 @@ def load_layouts(*, bids_module):
             layouts[ds.stem] = bids_module.BIDSLayout(ds)
     return layouts
 
- # Query tests
+# Query tests
 @timing()
 def all_subjects(*, layout):
     """ Get all subjects in a layout."""
@@ -121,7 +112,7 @@ def get_niftis_as_files(*, layout, tasks):
 def get_objects_from_paths(*, layout, files):
     results = []
     for f in files:
-        results.append(layout.get_file(f))
+        results.append(layout.get_file(f.path))
     return results
 
 @timing()
@@ -138,6 +129,7 @@ def get_metadata(*, layout, files):
     for f in files:
         results.append(f.get_metadata())
     return results
+
 
 def _run_pybids_benchmarks(bids_module, version):
     """ Run all benchmarks for a given version of pybids."""
@@ -157,28 +149,7 @@ def _run_pybids_benchmarks(bids_module, version):
     # File queries
     files = get_niftis_as_objects(layouts=layouts, tasks=tasks, version=version)
     get_metadata(layouts=layouts, files=files, version=version)
-
-def _load_pybids_from_path(path):
-    # Unload existing pybids
-    for mod in list(sys.modules.keys()):
-        if mod.startswith('bids'):
-            del(sys.modules[mod])
-
-    # Load pybids from path
-    sys.path.insert(0,os.path.abspath(path))
-    import bids.layout as bids_l
-    return bids_l
-
-
-# Test bids2table on similar queries
-# def b2t_ses_query(ta):
-#     return (
-#         nndb_b2t['_index']
-#         .query(f"task == '{ta}'")
-#         .loc[:, ["dataset", "subject"]]
-#         .values
-#         )
-
+    # get_objects_from_paths(layouts=layouts, files=files, version=version) # Not working in ancpbids
 
 if __name__ == '__main__':
     # Test "legacy" pybids
@@ -193,7 +164,7 @@ if __name__ == '__main__':
 
     # Convert & save results
     df = pd.DataFrame(BENCHMARK_STATS, columns=BENCHMARK_COLS)
-    df.to_csv(f"results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv", index=False)
+    df.to_csv(f"results/results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv", index=False)
 
     print("RESULT SUMMARY:")
     means = df.groupby(['version', 'function']).mean().reset_index()
